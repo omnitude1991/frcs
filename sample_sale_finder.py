@@ -18,17 +18,22 @@ import json
 import sys
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import webbrowser
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 BASE = "https://www.asossamplesale.com"
 UA = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}
 PORT = 8765
-TTL = 300  # seconds before a scanned scope is re-fetched
+TTL = 300
+MAX_WORKERS = 4
+REQUEST_TIMEOUT = 30
+MAX_RETRIES = 3
+RETRY_BACKOFF = 1.5
 
-# What you can scan. Handle -> label.
 SCOPES = [
     ("men", "Menswear"),
     ("women", "Womenswear"),
@@ -41,14 +46,33 @@ SCOPES = [
 
 _cache = {}
 _lock = threading.Lock()
+_executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 
 
 # ---------------------------------------------------------------- data layer
 
-def fetch_json(url):
-    req = urllib.request.Request(url, headers=UA)
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return json.load(resp)
+def fetch_json(url, attempt=1):
+    """Fetch JSON with retry logic and exponential backoff."""
+    try:
+        req = urllib.request.Request(url, headers=UA)
+        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
+            return json.load(resp)
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as exc:
+        if attempt < MAX_RETRIES:
+            wait = RETRY_BACKOFF ** (attempt - 1)
+            time.sleep(wait)
+            return fetch_json(url, attempt + 1)
+        raise exc
+
+
+def fetch_page(handle, page):
+    """Fetch a single page of products. Returns (page_num, products, error)."""
+    url = f"{BASE}/collections/{handle}/products.json?limit=250&page={page}"
+    try:
+        data = fetch_json(url)
+        return (page, data.get("products", []), None)
+    except Exception as exc:
+        return (page, [], str(exc))
 
 
 def get_collection(handle):
@@ -58,17 +82,22 @@ def get_collection(handle):
     if hit and time.time() - hit[0] < TTL:
         return hit[1]
 
-    rows, page, seen = [], 1, set()
-    while True:
-        url = f"{BASE}/collections/{handle}/products.json?limit=250&page={page}"
-        try:
-            batch = fetch_json(url).get("products", [])
-        except Exception as exc:
-            print(f"  ! {handle} page {page}: {exc}", file=sys.stderr)
-            break
-        if not batch:
-            break
-        for p in batch:
+    rows, seen = [], set()
+    pages_done = [0]
+    errors = []
+
+    def process_batch(future):
+        page, products, error = future.result()
+        pages_done[0] += 1
+        status = f"  {handle}: page {page}/{pages_done[0]}"
+        if error:
+            status += f" (error: {error})"
+            errors.append(error)
+        else:
+            status += f" ({len(products)} items)"
+        print(status, file=sys.stderr)
+
+        for p in products:
             if p["handle"] in seen:
                 continue
             seen.add(p["handle"])
@@ -88,8 +117,26 @@ def get_collection(handle):
                     "a": bool(v.get("available")),
                     "id": v["id"],
                 })
-        page += 1
-        time.sleep(0.25)
+
+    futures = {}
+    page = 1
+    batch_size = MAX_WORKERS * 2
+    fetching = True
+
+    while fetching:
+        while len(futures) < batch_size and fetching:
+            future = _executor.submit(fetch_page, handle, page)
+            futures[future] = page
+            page += 1
+
+        for future in as_completed(futures):
+            process_batch(future)
+            del futures[future]
+            page_num, products, error = future.result()
+
+            if not products:
+                fetching = False
+                break
 
     with _lock:
         _cache[handle] = (time.time(), rows)
@@ -125,12 +172,13 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 print(f"  scanning {handle} ...")
                 rows = get_collection(handle)
-                print(f"  {len(rows)} variants")
+                print(f"  {len(rows)} variants found")
                 self._send(json.dumps({"rows": rows}))
             else:
                 self._send(json.dumps({"error": "Not found"}), code=404)
         except Exception as exc:
-            self._send(json.dumps({"error": str(exc)}), code=500)
+            error_msg = "Network error" if "urlopen" in str(type(exc)) else str(exc)
+            self._send(json.dumps({"error": error_msg}), code=500)
 
 
 # --------------------------------------------------------------------- page
@@ -164,6 +212,7 @@ h1{font-family:'Archivo Narrow',sans-serif;font-weight:700;font-size:24px;
 .rescan{background:none;border:1px solid var(--rule);border-radius:2px;
   padding:7px 13px;font-size:12px;cursor:pointer;color:var(--ink-3)}
 .rescan:hover{background:var(--card);color:var(--ink)}
+.rescan:disabled{opacity:0.5;cursor:not-allowed}
 .stamp-time{margin-left:auto;font-size:11.5px;color:var(--ink-3)}
 
 .shell{max-width:1200px;margin:0 auto;padding:20px 22px;
@@ -308,21 +357,25 @@ const $ = s => document.querySelector(s);
 const el = (t,c,x) => { const n=document.createElement(t);
   if(c)n.className=c; if(x!=null)n.textContent=x; return n; };
 
-let ROWS = [];                       // one entry per variant
+let ROWS = [];
 let PICK = { y:new Set(), s:new Set(), b:new Set() };
 let PMIN = null, PMAX = null;
 let INSTOCK = true, SORT = 'price-asc';
+let LOADING = false;
 
-/* ---------- scopes ---------- */
 fetch('/api/scopes').then(r=>r.json()).then(d=>{
   const sel = $('#scope');
   d.scopes.forEach(s => { const o = el('option',null,s.t); o.value = s.h; sel.appendChild(o); });
   scan(sel.value);
 });
 $('#scope').addEventListener('change', e => scan(e.target.value));
-$('#rescan').addEventListener('click', () => scan($('#scope').value, true));
+$('#rescan').addEventListener('click', () => {
+  if (!LOADING) scan($('#scope').value, true);
+});
 
 async function scan(handle, force) {
+  LOADING = true;
+  $('#rescan').disabled = true;
   $('#out').innerHTML = '<div class="empty"><span class="spin"></span>Reading the sale…</div>';
   $('#stamp').textContent = '';
   try {
@@ -338,12 +391,12 @@ async function scan(handle, force) {
     $('#out').innerHTML = '';
     $('#out').appendChild(el('div','err','Could not read the sale: ' + err.message +
       '. Check your connection, then hit refresh stock.'));
+  } finally {
+    LOADING = false;
+    $('#rescan').disabled = false;
   }
 }
 
-/* ---------- filtering ---------- */
-// Rows passing every filter EXCEPT the named one — that's how each facet
-// gets counts that reflect the other filters, like a real faceted search.
 function pass(r, skip) {
   if (skip !== 'y' && PICK.y.size && !PICK.y.has(r.y)) return false;
   if (skip !== 's' && PICK.s.size && !PICK.s.has(r.s)) return false;
@@ -364,7 +417,6 @@ function counts(rows, key) {
   return m;
 }
 
-/* ---------- facets ---------- */
 function facet(boxId, nId, key, numeric) {
   const box = $(boxId); box.textContent = '';
   const m = counts(subset(key), key);
@@ -408,7 +460,6 @@ $('#reset').addEventListener('click', () => {
   $('#find-size').value=''; $('#find-brand').value=''; draw();
 });
 
-/* ---------- draw ---------- */
 function draw() {
   facet('#f-type','#n-type','y',false);
   facet('#f-size','#n-size','s',true);
@@ -456,7 +507,6 @@ function render() {
   stockLab.append(scb, el('span',null,'In stock only'));
   tb.append(sortLab, stockLab); out.appendChild(tb);
 
-  // group variants back into products
   const byProduct = new Map();
   rows.forEach(r => {
     const g = byProduct.get(r.h) || { r, live:[], all:[] };
@@ -543,6 +593,8 @@ def main():
         server.serve_forever()
     except KeyboardInterrupt:
         print("\n  Stopped.")
+    finally:
+        _executor.shutdown(wait=True)
 
 
 if __name__ == "__main__":
