@@ -29,10 +29,10 @@ BASE = "https://www.asossamplesale.com"
 UA = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}
 PORT = 8765
 TTL = 300
-MAX_WORKERS = 4
+MAX_WORKERS = 1
 REQUEST_TIMEOUT = 30
 MAX_RETRIES = 3
-RETRY_BACKOFF = 1.5
+RETRY_BACKOFF = 3
 
 SCOPES = [
     ("men", "Menswear"),
@@ -128,6 +128,7 @@ def get_collection(handle):
             future = _executor.submit(fetch_page, handle, page)
             futures[future] = page
             page += 1
+            time.sleep(0.5)
 
         for future in as_completed(futures):
             process_batch(future)
