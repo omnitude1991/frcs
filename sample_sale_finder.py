@@ -15,6 +15,7 @@ fetching itself, which gets around that.
 """
 
 import json
+import ssl
 import sys
 import threading
 import time
@@ -24,6 +25,8 @@ import urllib.request
 import webbrowser
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, HTTPServer
+
+ssl._create_default_https_context = ssl._create_unverified_context
 
 BASE = "https://www.asossamplesale.com"
 UA = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}
