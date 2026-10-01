@@ -238,6 +238,7 @@ h1{font-family:'Archivo Narrow',sans-serif;font-weight:700;font-size:24px;
 label.row{display:flex;gap:9px;align-items:baseline;padding:6px 9px;cursor:pointer;
   font-size:13.5px;border-bottom:1px solid rgba(200,201,193,.5)}
 label.row:last-child{border-bottom:none}
+label.row[hidden]{display:none}
 label.row:hover{background:var(--paper-2)}
 label.row input{margin:0;accent-color:var(--live);flex:none;position:relative;top:1px}
 label.row.dim{opacity:.45}
@@ -413,8 +414,8 @@ function pass(r, skip) {
   if (PMIN != null && r.p < PMIN) return false;
   if (PMAX != null && r.p > PMAX) return false;
   if (SEARCH) {
-    const q = SEARCH.toLowerCase();
-    if (!r.t.toLowerCase().includes(q) && !r.b.toLowerCase().includes(q) && !r.y.toLowerCase().includes(q)) return false;
+    const hay = (r.t + ' ' + r.b + ' ' + r.y).toLowerCase();
+    if (!SEARCH.toLowerCase().split(/\s+/).filter(Boolean).every(w => hay.includes(w))) return false;
   }
   return true;
 }
@@ -438,9 +439,10 @@ function facet(boxId, nId, key, numeric) {
   [...m.entries()].sort((a,b) =>
       b[1].live - a[1].live ||
       a[0].localeCompare(b[0], undefined, numeric ? {numeric:true} : {}))
-    .forEach(([val, c]) => {
+    .forEach(([val, c], i) => {
       const row = el('label','row' + (c.live ? '' : ' dim'));
       row.dataset.name = val.toLowerCase();
+      row.dataset.i = i;
       const cb = el('input'); cb.type='checkbox'; cb.value=val;
       cb.checked = PICK[key].has(val);
       cb.addEventListener('change', () => {
@@ -458,25 +460,21 @@ function facet(boxId, nId, key, numeric) {
 function applyFind(boxId) {
   const input = boxId === '#f-size' ? $('#find-size') : boxId === '#f-brand' ? $('#find-brand') : null;
   if (!input) return;
-  const q = input.value.toLowerCase();
-  const rows = Array.from(document.querySelectorAll(boxId + ' label.row'));
-
-  if (boxId === '#f-size' && q) {
-    const prefix = [], contains = [];
-    rows.forEach(r => {
-      const name = (r.dataset.name || '').toLowerCase();
-      if (name.startsWith(q)) prefix.push(r);
-      else if (name.includes(q)) contains.push(r);
-    });
-    rows.forEach(r => r.hidden = true);
-    [...prefix, ...contains].forEach(r => r.hidden = false);
-  } else {
-    rows.forEach(r => {
-      const name = (r.dataset.name || '').toLowerCase();
-      r.hidden = q && !name.includes(q);
-    });
-  }
+  const q = norm(input.value);
+  const box = $(boxId);
+  const rows = Array.from(box.querySelectorAll('label.row'));
+  rows.sort((a,b) => a.dataset.i - b.dataset.i);
+  if (!q) { rows.forEach(r => { r.hidden = false; box.appendChild(r); }); return; }
+  const prefix = [], contains = [];
+  rows.forEach(r => {
+    const name = norm(r.dataset.name);
+    r.hidden = true;
+    if (name.startsWith(q)) prefix.push(r);
+    else if (name.includes(q)) contains.push(r);
+  });
+  [...prefix, ...contains].forEach(r => { r.hidden = false; box.appendChild(r); });
 }
+const norm = s => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 $('#search-prod').addEventListener('input', e => { SEARCH = e.target.value; draw(); });
 $('#find-size').addEventListener('input', () => applyFind('#f-size'));
 $('#find-brand').addEventListener('input', () => applyFind('#f-brand'));
