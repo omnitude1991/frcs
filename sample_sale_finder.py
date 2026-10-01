@@ -459,19 +459,22 @@ function applyFind(boxId) {
   const input = boxId === '#f-size' ? $('#find-size') : boxId === '#f-brand' ? $('#find-brand') : null;
   if (!input) return;
   const q = input.value.toLowerCase();
-  const rows = document.querySelectorAll(boxId + ' label.row');
+  const rows = Array.from(document.querySelectorAll(boxId + ' label.row'));
 
   if (boxId === '#f-size' && q) {
     const prefix = [], contains = [];
     rows.forEach(r => {
-      const name = r.dataset.name;
+      const name = (r.dataset.name || '').toLowerCase();
       if (name.startsWith(q)) prefix.push(r);
       else if (name.includes(q)) contains.push(r);
     });
     rows.forEach(r => r.hidden = true);
     [...prefix, ...contains].forEach(r => r.hidden = false);
   } else {
-    rows.forEach(r => r.hidden = q && !r.dataset.name.includes(q));
+    rows.forEach(r => {
+      const name = (r.dataset.name || '').toLowerCase();
+      r.hidden = q && !name.includes(q);
+    });
   }
 }
 $('#search-prod').addEventListener('input', e => { SEARCH = e.target.value; draw(); });
