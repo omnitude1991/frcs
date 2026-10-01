@@ -332,6 +332,10 @@ label.row.dim{opacity:.45}
 
 <div class="shell">
   <form class="rail" id="rail" onsubmit="return false">
+    <fieldset class="facet"><legend>Search <span class="n" id="n-search"></span></legend>
+      <input class="ffind" id="search-prod" type="search" placeholder="e.g. oxford shirt…" aria-label="Search products">
+    </fieldset>
+
     <fieldset class="facet"><legend>Product type <span class="n" id="n-type"></span></legend>
       <div class="box" id="f-type"></div></fieldset>
 
@@ -366,6 +370,7 @@ let PICK = { y:new Set(), s:new Set(), b:new Set() };
 let PMIN = null, PMAX = null;
 let INSTOCK = true, SORT = 'price-asc';
 let LOADING = false;
+let SEARCH = '';
 
 fetch('/api/scopes').then(r=>r.json()).then(d=>{
   const sel = $('#scope');
@@ -407,6 +412,10 @@ function pass(r, skip) {
   if (skip !== 'b' && PICK.b.size && !PICK.b.has(r.b)) return false;
   if (PMIN != null && r.p < PMIN) return false;
   if (PMAX != null && r.p > PMAX) return false;
+  if (SEARCH) {
+    const q = SEARCH.toLowerCase();
+    if (!r.t.toLowerCase().includes(q) && !r.b.toLowerCase().includes(q) && !r.y.toLowerCase().includes(q)) return false;
+  }
   return true;
 }
 const subset = skip => ROWS.filter(r => pass(r, skip));
@@ -450,9 +459,22 @@ function applyFind(boxId) {
   const input = boxId === '#f-size' ? $('#find-size') : boxId === '#f-brand' ? $('#find-brand') : null;
   if (!input) return;
   const q = input.value.toLowerCase();
-  document.querySelectorAll(boxId + ' label.row').forEach(r =>
-    r.hidden = q && !r.dataset.name.includes(q));
+  const rows = document.querySelectorAll(boxId + ' label.row');
+
+  if (boxId === '#f-size' && q) {
+    const prefix = [], contains = [];
+    rows.forEach(r => {
+      const name = r.dataset.name;
+      if (name.startsWith(q)) prefix.push(r);
+      else if (name.includes(q)) contains.push(r);
+    });
+    rows.forEach(r => r.hidden = true);
+    [...prefix, ...contains].forEach(r => r.hidden = false);
+  } else {
+    rows.forEach(r => r.hidden = q && !r.dataset.name.includes(q));
+  }
 }
+$('#search-prod').addEventListener('input', e => { SEARCH = e.target.value; draw(); });
 $('#find-size').addEventListener('input', () => applyFind('#f-size'));
 $('#find-brand').addEventListener('input', () => applyFind('#f-brand'));
 
@@ -460,8 +482,9 @@ $('#pmin').addEventListener('input', e => { PMIN = e.target.value === '' ? null 
 $('#pmax').addEventListener('input', e => { PMAX = e.target.value === '' ? null : +e.target.value; draw(); });
 $('#reset').addEventListener('click', () => {
   PICK = { y:new Set(), s:new Set(), b:new Set() };
-  PMIN = PMAX = null; $('#pmin').value=''; $('#pmax').value='';
-  $('#find-size').value=''; $('#find-brand').value=''; draw();
+  PMIN = PMAX = null; SEARCH = '';
+  $('#pmin').value=''; $('#pmax').value='';
+  $('#search-prod').value=''; $('#find-size').value=''; $('#find-brand').value=''; draw();
 });
 
 function draw() {
