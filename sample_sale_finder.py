@@ -29,15 +29,22 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 ssl._create_default_https_context = ssl._create_unverified_context
 
 BASE = "https://www.asossamplesale.com"
-UA = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}
+UA = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "application/json",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://www.asossamplesale.com/",
+    "Cache-Control": "no-cache",
+}
 PORT = 8765
 TTL = 300
 MAX_WORKERS = 1
 REQUEST_TIMEOUT = 30
-MAX_RETRIES = 3
-RETRY_BACKOFF = 3
-INTER_REQUEST_DELAY = 2.0
-BATCH_DELAY = 3.0
+MAX_RETRIES = 5
+RETRY_BACKOFF = 5
+INTER_REQUEST_DELAY = 3.0
+BATCH_DELAY = 5.0
 
 SCOPES = [
     ("men", "Menswear"),
