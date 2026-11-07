@@ -36,6 +36,8 @@ MAX_WORKERS = 1
 REQUEST_TIMEOUT = 30
 MAX_RETRIES = 3
 RETRY_BACKOFF = 3
+INTER_REQUEST_DELAY = 2.0
+BATCH_DELAY = 3.0
 
 SCOPES = [
     ("men", "Menswear"),
@@ -131,7 +133,7 @@ def get_collection(handle):
             future = _executor.submit(fetch_page, handle, page)
             futures[future] = page
             page += 1
-            time.sleep(0.5)
+            time.sleep(INTER_REQUEST_DELAY)
 
         for future in as_completed(futures):
             process_batch(future)
@@ -141,6 +143,9 @@ def get_collection(handle):
             if not products:
                 fetching = False
                 break
+
+        if fetching and futures:
+            time.sleep(BATCH_DELAY)
 
     with _lock:
         _cache[handle] = (time.time(), rows)
