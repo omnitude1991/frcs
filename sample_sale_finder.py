@@ -45,10 +45,11 @@ PORT = 8765
 TTL = 300
 MAX_WORKERS = 1
 REQUEST_TIMEOUT = 60
-MAX_RETRIES = 15
-RETRY_BACKOFF = 2
-INTER_REQUEST_DELAY = 15.0
-BATCH_DELAY = 30.0
+MAX_RETRIES = 20
+RETRY_BACKOFF = 1.5
+INTER_REQUEST_DELAY = 20.0
+BATCH_DELAY = 45.0
+INITIAL_WAIT = 30
 
 SCOPES = [
     ("men", "Menswear"),
@@ -101,11 +102,19 @@ def get_collection(handle):
     if hit and time.time() - hit[0] < TTL:
         return hit[1]
 
+    print(f"  {handle}: initial cooldown {INITIAL_WAIT}s...", file=sys.stderr)
+    time.sleep(INITIAL_WAIT)
+
     try:
         print(f"  {handle}: establishing session...", file=sys.stderr)
+        main_req = urllib.request.Request("https://www.asos.com", headers=UA)
+        _opener.open(main_req, timeout=REQUEST_TIMEOUT)
+        print(f"  {handle}: main site loaded, waiting 10s...", file=sys.stderr)
+        time.sleep(10)
         init_req = urllib.request.Request(f"{BASE}/collections/{handle}", headers=UA)
         _opener.open(init_req, timeout=REQUEST_TIMEOUT)
-        time.sleep(2)
+        print(f"  {handle}: collection page loaded, waiting 15s before API...", file=sys.stderr)
+        time.sleep(15)
     except Exception as e:
         print(f"  {handle}: session init failed: {e}", file=sys.stderr)
 
