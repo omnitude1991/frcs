@@ -40,11 +40,11 @@ UA = {
 PORT = 8765
 TTL = 300
 MAX_WORKERS = 1
-REQUEST_TIMEOUT = 30
-MAX_RETRIES = 5
-RETRY_BACKOFF = 5
-INTER_REQUEST_DELAY = 3.0
-BATCH_DELAY = 5.0
+REQUEST_TIMEOUT = 60
+MAX_RETRIES = 15
+RETRY_BACKOFF = 2
+INTER_REQUEST_DELAY = 15.0
+BATCH_DELAY = 30.0
 
 SCOPES = [
     ("men", "Menswear"),
@@ -66,14 +66,17 @@ _executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 def fetch_json(url, attempt=1):
     """Fetch JSON with retry logic and exponential backoff."""
     try:
+        print(f"    [fetch attempt {attempt}/{MAX_RETRIES}]", file=sys.stderr)
         req = urllib.request.Request(url, headers=UA)
         with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
             return json.load(resp)
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as exc:
         if attempt < MAX_RETRIES:
             wait = RETRY_BACKOFF ** (attempt - 1)
+            print(f"    [retry in {wait}s: {exc}]", file=sys.stderr)
             time.sleep(wait)
             return fetch_json(url, attempt + 1)
+        print(f"    [failed after {MAX_RETRIES} attempts: {exc}]", file=sys.stderr)
         raise exc
 
 
@@ -97,11 +100,13 @@ def get_collection(handle):
     rows, seen = [], set()
     pages_done = [0]
     errors = []
+    start_time = time.time()
 
     def process_batch(future):
         page, products, error = future.result()
         pages_done[0] += 1
-        status = f"  {handle}: page {page}/{pages_done[0]}"
+        elapsed = time.time() - start_time
+        status = f"  {handle}: page {page}/{pages_done[0]} ({elapsed:.1f}s)"
         if error:
             status += f" (error: {error})"
             errors.append(error)
