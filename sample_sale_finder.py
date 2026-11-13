@@ -25,8 +25,12 @@ import urllib.request
 import webbrowser
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.cookiejar import CookieJar
 
 ssl._create_default_https_context = ssl._create_unverified_context
+
+_cookie_jar = CookieJar()
+_opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(_cookie_jar))
 
 BASE = "https://www.asossamplesale.com"
 UA = {
@@ -68,7 +72,7 @@ def fetch_json(url, attempt=1):
     try:
         print(f"    [fetch attempt {attempt}/{MAX_RETRIES}]", file=sys.stderr)
         req = urllib.request.Request(url, headers=UA)
-        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
+        with _opener.open(req, timeout=REQUEST_TIMEOUT) as resp:
             return json.load(resp)
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as exc:
         if attempt < MAX_RETRIES:
@@ -96,6 +100,14 @@ def get_collection(handle):
         hit = _cache.get(handle)
     if hit and time.time() - hit[0] < TTL:
         return hit[1]
+
+    try:
+        print(f"  {handle}: establishing session...", file=sys.stderr)
+        init_req = urllib.request.Request(f"{BASE}/collections/{handle}", headers=UA)
+        _opener.open(init_req, timeout=REQUEST_TIMEOUT)
+        time.sleep(2)
+    except Exception as e:
+        print(f"  {handle}: session init failed: {e}", file=sys.stderr)
 
     rows, seen = [], set()
     pages_done = [0]
